@@ -1,5 +1,126 @@
+# KMS Key Policy for CloudTrail
+data "aws_iam_policy_document" "cloudtrail_kms_policy" {
+  # Allow specific administrators to manage the key
+  statement {
+    sid    = "EnableKeyAdministration"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = var.kms_admin_arns
+    }
+
+    actions   = ["kms:*"]
+    resources = ["*"]
+  }
+
+  # Allow CloudTrail service to use the key
+  statement {
+    sid    = "AllowCloudTrailService"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+
+    actions = [
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey",
+      "kms:Decrypt"
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:EncryptionContext:aws:cloudtrail:arn"
+      values = [
+        "arn:aws:cloudtrail:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:trail/*"
+      ]
+    }
+  }
+
+  # Allow S3 service for CloudTrail bucket operations
+  statement {
+    sid    = "AllowS3Service"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["s3.amazonaws.com"]
+    }
+
+    actions = [
+      "kms:Decrypt",
+      "kms:GenerateDataKey"
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["s3.${data.aws_region.current.name}.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "ami_cleanup_lambda_kms_policy" {
+  name = "ami_cleanup_lambda-kms-policy"
+  role = aws_iam_role.ami_cleanup_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey"
+        ]
+        Resource = aws_kms_key.cloudtrail.arn
+        Condition = {
+          StringEquals = {
+            "kms:ViaService" = [
+              "s3.${data.aws_region.current.name}.amazonaws.com",
+              "athena.${data.aws_region.current.name}.amazonaws.com"
+            ]
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "ami_cleanup_lambda_recycle_bin_policy" {
+  name = "ami_cleanup_lambda-recycle-bin-policy"
+  role = aws_iam_role.ami_cleanup_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "rbin:PutRetentionRule",
+          "rbin:GetRetentionRule",
+          "rbin:ListRetentionRules"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeImageAttribute",
+          "ec2:ModifyImageAttribute"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role" "cloudtrail_role" {
-  name = "${aws_s3_bucket.cloudtrail_logs}-logging-role"
+  name = "${aws_s3_bucket.cloudtrail_logs.id}-logging-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -75,7 +196,7 @@ resource "aws_iam_role_policy" "cloudtrail_s3_policy" {
 }
 
 resource "aws_iam_role" "lambda_cloudtrail_role" {
-  name = "${aws_lambda_function.ami_cleanup_lambda}-cloudtrail-processing-role"
+  name = "${aws_lambda_function.ami_cleanup_lambda.id}-cloudtrail-processing-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -288,7 +409,7 @@ resource "aws_iam_role_policy" "ami_cleanup_lambda_policy" {
           "logs:PutLogEvents"
         ]
         Resource = [
-          "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${aws_lambda_function.ami_cleanup_lambda}:*"
+          "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${aws_lambda_function.ami_cleanup_lambda.id}:*"
         ]
       },
       {

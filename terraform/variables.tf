@@ -4,6 +4,8 @@
 
 variable "aws_region" {
   description = "(Required) - The AWS region (e.g. ap-southeast-2). Autoloaded from region.tfvars."
+  default     = "eu-west-1"
+  type        = string
 }
 
 variable "aws_account_id" {
@@ -37,4 +39,27 @@ variable "existing_cloudtrail_bucket_name" {
   description = "Tag key used to prevent AMI deletion"
   type        = string
   default     = ""
+}
+
+# -----------------------------------------------------------------------------
+# Variables: KMS variables
+# -----------------------------------------------------------------------------
+
+
+variable "kms_admin_arns" {
+  description = "List of ARNs for users/roles that can administer the KMS key"
+  type        = list(string)
+  default     = []
+}
+
+variable "cloudtrail_user_arns" {
+  description = "List of ARNs for users/roles that can use the KMS key for CloudTrail operations"
+  type        = list(string)
+  default = []
+}
+
+variable "trusted_account_ids" {
+  description = "List of ARNs for users/roles that can use the KMS key for CloudTrail operations"
+  type        = list(string)
+  default = []
 }
